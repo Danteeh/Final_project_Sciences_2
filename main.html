@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>Mapa de Rutas Bogotá</title>
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+
+    <style>
+        #map {
+            width: 100%;
+            height: 100vh;
+        }
+    </style>
+</head>
+<body>
+
+<div id="buscador" style="
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 1000;
+    background: white;
+    padding: 8px;
+    border-radius: 6px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+">
+    <input type="text" id="inputRuta" placeholder="Buscar ruta (ej: H15, 6_2)" 
+           style="width: 180px; padding: 5px;">
+    <button onclick="buscarRuta()">Buscar</button>
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+    function colorRuta(tipo) {
+        switch (tipo) {
+            case "TRONCAL": return "red";
+            case "ALIMENTADOR": return "green";
+            case "SITP": return "blue";
+            case "METRO": return "purple";
+            default: return "gray";
+        }
+    }
+
+    function colorEstacion(tipo) {
+        return colorRuta(tipo);
+    }
+
+    const map = L.map("map").setView([4.65, -74.1], 12);
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19
+    }).addTo(map);
+
+    const capasRutas = {
+        "TRONCAL": L.layerGroup().addTo(map),
+        "ALIMENTADOR": L.layerGroup().addTo(map),
+        "SITP": L.layerGroup().addTo(map),
+        "METRO": L.layerGroup().addTo(map)
+    };
+
+    const capasEstaciones = {
+        "ESTACIONES": L.layerGroup().addTo(map)
+    };
+
+    const rutasDiccionario = {}; 
+
+
+    fetch("estaciones.geojson")
+        .then(res => res.json())
+        .then(data => {
+            L.geoJSON(data, {
+                pointToLayer: (feature, latlng) => {
+                    const color = colorEstacion(feature.properties.tipo);
+
+                    return L.circleMarker(latlng, {
+                        radius: 5,
+                        color: color,
+                        fillColor: color,
+                        fillOpacity: 0.9
+                    }).bindPopup(
+                        "<b>" + feature.properties.nombre + "</b><br>" +
+                        "Tipo: " + feature.properties.tipo
+                    );
+                }
+            }).addTo(capasEstaciones["ESTACIONES"]);
+        });
+
+
+    fetch("rutas.geojson")
+        .then(res => res.json())
+        .then(data => {
+            L.geoJSON(data, {
+                style: feature => ({
+                    color: colorRuta(feature.properties.tipo),
+                    weight: 3
+                }),
+
+                onEachFeature: (feature, layer) => {
+                    const tipo = feature.properties.tipo;
+                    const short = feature.properties.short_name.toUpperCase();
+
+                    rutasDiccionario[short] = layer;
+
+                    layer.bindTooltip(
+                        "Ruta: " + feature.properties.short_name +
+                        "<br>" + feature.properties.long_name
+                    );
+
+                    layer.on("mouseover", () => {
+                        layer.setStyle({ weight: 6, color: "yellow" });
+                    });
+
+                    layer.on("mouseout", () => {
+                        layer.setStyle({
+                            weight: 3,
+                            color: colorRuta(tipo)
+                        });
+                    });
+
+                    capasRutas[tipo].addLayer(layer);
+                }
+            });
+        });
+
+
+    function buscarRuta() {
+        const codigo = document.getElementById("inputRuta").value.trim().toUpperCase();
+
+        if (!codigo) return;
+
+        const ruta = rutasDiccionario[codigo];
+
+        if (!ruta) {
+            alert("No se encontró la ruta: " + codigo);
+            return;
+        }
+
+        const bounds = ruta.getBounds();
+        map.fitBounds(bounds, { padding: [50, 50] });
+
+        ruta.setStyle({ color: "yellow", weight: 8 });
+
+        setTimeout(() => {
+            ruta.setStyle({
+                color: colorRuta(ruta.feature.properties.tipo),
+                weight: 3
+            });
+        }, 3000);
+    }
+
+</script>
+
+</body>
+</html>
