@@ -1,269 +1,248 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="utf-8" />
-    <title>Mapa — Rutas, Paraderos y Grafo Bogotá</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta charset="utf-8"/>
+<title>Mapa — Construcción de Grafo Bogotá</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+html, body { height:100%; margin:0; }
+#map { width:100%; height:100vh; }
 
-    <style>
-        html,body { height:100%; margin:0; }
-        #map { width:100%; height:100vh; }
+.control-box {
+    position:absolute;
+    top:20px;
+    left:20px;
+    z-index:1000;
+    background:white;
+    padding:10px;
+    border-radius:6px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.24);
+    width:300px;
+    font-family:Arial;
+    font-size:13px;
+}
 
-        .control-box {
-            position: absolute;
-            top: 60px;
-            left: 10px;
-            z-index: 1000;
-            background: white;
-            padding: 10px;
-            border-radius: 6px;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.25);
-            font-family: Arial, sans-serif;
-            width: 230px;
-        }
-
-        .legend {
-            position: absolute;
-            bottom: 10px;
-            left: 10px;
-            z-index: 1000;
-            background: white;
-            padding: 8px;
-            border-radius: 6px;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.25);
-            font-family: Arial, sans-serif;
-            font-size: 13px;
-        }
-
-        .legend .item { margin-bottom:6px; }
-        .legend .swatch { display:inline-block; width:14px; height:14px; margin-right:6px; vertical-align:middle; }
-    </style>
+#pesoBox { display:none; margin-top:8px; }
+#selectedPair { font-size:12px; font-weight:bold; margin-bottom:6px; }
+#outputJson { width:100%; height:160px; font-family:monospace; font-size:11px; }
+</style>
 </head>
+
 <body>
 
-<div class="control-box" id="controls">
-    <div style="margin-bottom:6px; font-weight:bold;">
-        Buscar Ruta
-    </div>
+<div class="control-box">
+    <div style="font-weight:bold;margin-bottom:6px;">Construcción de grafo</div>
 
-    <input id="inputRuta" 
-           type="text" 
-           placeholder="Ej: H15, 6_2, T_1943"
-           style="width:210px;padding:6px;margin-bottom:6px;border:1px solid #ccc;border-radius:4px;">
-
-    <button id="btnBuscar" 
-            style="width:100%;padding:6px;border:none;background:#333;color:white;border-radius:4px;cursor:pointer;">
-        Buscar
+    <button id="resetGrafo" style="width:100%;padding:6px;background:#aa0000;color:white;border:none;border-radius:4px;cursor:pointer;">
+        Reiniciar Grafo
     </button>
 
+    <div id="pesoBox">
+        <div id="selectedPair"></div>
+        <input type="number" id="inputPeso" placeholder="Peso de arista" style="width:100%;padding:6px;border:1px solid #bbb;border-radius:4px;margin-bottom:6px;">
+        <button id="guardarEdge" style="width:100%;padding:6px;background:#0055aa;color:white;border:none;border-radius:4px;cursor:pointer;">
+            Guardar arista
+        </button>
+        <button id="cancelEdge" style="width:100%;padding:6px;margin-top:5px;background:#888;color:white;border:none;border-radius:4px;cursor:pointer;">
+            Cancelar
+        </button>
+    </div>
+
     <hr style="margin:10px 0;">
-
-    <label style="font-size:13px;">
-        <input id="chkMostrarGrafo" type="checkbox">
-        Mostrar aristas (grafo)
-    </label>
+    <div style="font-weight:bold;margin-bottom:4px;">Grafo JSON</div>
+    <textarea id="outputJson" readonly></textarea>
 </div>
-
 
 <div id="map"></div>
-
-<div class="legend">
-    <div class="item"><span class="swatch" style="background: red"></span> TRONCAL</div>
-    <div class="item"><span class="swatch" style="background: blue"></span> URBANO</div>
-    <div class="item"><span class="swatch" style="background: green"></span> ALIMENTADOR</div>
-    <div class="item"><span class="swatch" style="background: purple"></span> METRO</div>
-    <div class="item"><span class="swatch" style="background: gray"></span> MIXTO / UNKNOWN</div>
-</div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <script>
 
+// ======== CAPACIDADES POR TIPO ========
+const CAPACIDAD_POR_TIPO = {
+  TRONCAL: 200,
+  URBANO: 80,
+  ALIMENTADOR: 60,
+  METRO: 500,
+  MIXTO: 120,
+  UNKNOWN: 50
+};
+
+// ======== MAPA ========
 const map = L.map('map').setView([4.65, -74.1], 12);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19}).addTo(map);
 
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19
-}).addTo(map);
+const capaSubgrafo = L.layerGroup().addTo(map);
+const capaEstaciones = L.layerGroup().addTo(map);
 
+const grafo = { nodos:{}, aristas:{} };
+let seleccion1 = null;
+let seleccion2 = null;
+
+/* ======== COLORES CORRECTOS POR TIPO ======== */
 function colorPorTipo(tipo) {
-    if (!tipo) return 'gray';
-    tipo = String(tipo).toUpperCase();
-    if (tipo.includes('TRONCAL')) return 'red';
-    if (tipo.includes('URBANO')) return 'blue';
-    if (tipo.includes('ALIMENTADOR') || tipo.includes('ALIM')) return 'green';
-    if (tipo.includes('METRO')) return 'purple';
+    tipo = String(tipo || '').toUpperCase();
+    if (tipo === 'TRONCAL') return 'red';
+    if (tipo === 'URBANO') return 'blue';
+    if (tipo === 'ALIMENTADOR') return 'green';
+    if (tipo === 'METRO') return 'purple';
     return 'gray';
 }
 
+// ======= Actualizar JSON en panel =======
+function actualizarJson() {
+    document.getElementById("outputJson").value = JSON.stringify(grafo, null, 2);
+}
 
-const capaBusqueda = L.layerGroup().addTo(map);
-const rutasLayers = {
-    'TRONCAL': L.layerGroup(),
-    'URBANO': L.layerGroup(),
-    'ALIMENTADOR': L.layerGroup(),
-    'METRO': L.layerGroup(),
-    'MIXTO': L.layerGroup(),
-    'UNKNOWN': L.layerGroup()
-};
-
-const paraderosLayers = {
-    'TRONCAL': L.layerGroup(),
-    'URBANO': L.layerGroup(),
-    'ALIMENTADOR': L.layerGroup(),
-    'MIXTO': L.layerGroup(),
-    'UNKNOWN': L.layerGroup()
-};
-
-const grafoEdgesLayer = L.layerGroup();
-
-const rutasDic = {};
-const rutasById = {};
-const paraderosById = {};
-
-let rutasGeojsonRaw = null;
-let paraderosGeojsonRaw = null;
-let grafoRaw = null;
-
-
-const overlays = {
-    'Rutas - TRONCAL': rutasLayers['TRONCAL'],
-    'Rutas - URBANO': rutasLayers['URBANO'],
-    'Rutas - ALIMENTADOR': rutasLayers['ALIMENTADOR'],
-    'Rutas - METRO': rutasLayers['METRO'],
-    'Paraderos - TRONCAL': paraderosLayers['TRONCAL'],
-    'Paraderos - URBANO': paraderosLayers['URBANO'],
-    'Paraderos - ALIMENTADOR': paraderosLayers['ALIMENTADOR'],
-    'Mostrar aristas (grafo)': grafoEdgesLayer
-};
-L.control.layers(null, overlays, { collapsed: false }).addTo(map);
-
-
-fetch('estaciones.geojson')
-.then(r => r.json())
-.then(data => {
-    paraderosGeojsonRaw = data;
-
-    data.features.forEach(f => {
-        const props = f.properties || {};
-        const tipo = (props.tipo || 'UNKNOWN').toUpperCase();
-        const coords = f.geometry.coordinates;
-        const latlng = [coords[1], coords[0]];
-        const color = colorPorTipo(tipo);
-
-        const marker = L.circleMarker(latlng, {
-            radius: 4,
-            color: color,
-            fillColor: color,
-            fillOpacity: 0.9
-        }).bindPopup(`<b>${props.stop_name || props.nombre}</b><br>Tipo: ${props.tipo}`);
-
-        paraderosById[props.stop_id] = marker;
-        (paraderosLayers[tipo] || paraderosLayers['UNKNOWN']).addLayer(marker);
-    });
-
-    paraderosLayers['TRONCAL'].addTo(map);
-    paraderosLayers['URBANO'].addTo(map);
-    paraderosLayers['ALIMENTADOR'].addTo(map);
+// ======== Reiniciar grafo local (no el mapa) ========
+document.getElementById("resetGrafo").addEventListener("click", () => {
+    grafo.nodos = {};
+    grafo.aristas = {};
+    seleccion1 = null;
+    seleccion2 = null;
+    capaSubgrafo.clearLayers();
+    actualizarJson();
 });
 
-fetch("rutas.geojson")
+// ======== Cargar estaciones y mostrarlas siempre ========
+let estacionesByCoordClick = {}; // id-> {lat,lng,tipo}
+
+fetch("estaciones.geojson")
 .then(r => r.json())
 .then(data => {
-    rutasGeojsonRaw = data;
+  data.features.forEach(f => {
+    const p = f.properties;
+    const [lng, lat] = f.geometry.coordinates;
+    const tipo = String(p.tipo || "UNKNOWN").toUpperCase();
 
-    L.geoJSON(data, {
-        style: feature => ({
-            color: colorPorTipo(feature.properties.tipo),
-            weight: 3
-        }),
+    const marker = L.circleMarker([lat, lng], {
+        radius: 5,
+        color: colorPorTipo(tipo),
+        fillColor: colorPorTipo(tipo),
+        fillOpacity: 0.95
+    })
+    .bindPopup(`<b>${p.stop_name}</b><br>Tipo: ${tipo}<br>Capacidad: ${CAPACIDAD_POR_TIPO[tipo] ?? CAPACIDAD_POR_TIPO.UNKNOWN}`);
 
-        onEachFeature: (feature, layer) => {
-            const props = feature.properties;
-            const tipo = (props.tipo || "UNKNOWN").toUpperCase();
-            const shortName = (props.short_name || "").toUpperCase();
-            const routeId = props.route_id;
+    // Mostrar en mapa siempre
+    marker.addTo(capaEstaciones);
 
-            if (shortName) rutasDic[shortName] = layer;
-            if (routeId) rutasById[routeId] = layer;
-
-            layer.bindPopup(
-                `<b>${props.short_name}</b><br>${props.long_name}<br>${props.tipo}`
-            );
-
-            const bucket = rutasLayers[tipo] || rutasLayers["UNKNOWN"];
-            bucket.addLayer(layer);
-        }
-    });
-
-
-    rutasLayers["TRONCAL"].addTo(map);
-    rutasLayers["URBANO"].addTo(map);
-    rutasLayers["ALIMENTADOR"].addTo(map);
+    // Guardar para detección por click cercano
+    estacionesByCoordClick[p.stop_id] = { lat, lng, tipo };
+  });
 });
 
+// ======== Selección para formar múltiples aristas ========
+map.on("click", (e) => {
 
+    let mejorNodo = null;
+    let mejorDist = Infinity;
 
-function ocultarTodasLasRutas() {
-    for (const k in rutasLayers) {
-        if (map.hasLayer(rutasLayers[k])) {
-            map.removeLayer(rutasLayers[k]);
+    // buscar nodo más cercano del dataset visualizado
+    for (const nid in estacionesByCoordClick) {
+        const n = estacionesByCoordClick[nid];
+        const dx = e.latlng.lat - n.lat;
+        const dy = e.latlng.lng - n.lng;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+
+        if (dist < mejorDist && dist < 0.02) { // tolerancia pequeña para detectar el click
+            mejorDist = dist;
+            mejorNodo = nid;
         }
     }
-}
 
-function mostrarTodasLasRutas() {
-    rutasLayers['TRONCAL'].addTo(map);
-    rutasLayers['URBANO'].addTo(map);
-    rutasLayers['ALIMENTADOR'].addTo(map);
-    rutasLayers['METRO'].addTo(map);
-    rutasLayers['MIXTO'].addTo(map);
-}
+    if (!mejorNodo) return;
 
+    const nSel = estacionesByCoordClick[mejorNodo];
+    const tipoSel = nSel.tipo;
+    const capSel = CAPACIDAD_POR_TIPO[tipoSel] ?? CAPACIDAD_POR_TIPO.UNKNOWN;
 
-function buscarRuta() {
-    const raw = (document.getElementById('inputRuta').value || '').trim();
-    if (!raw) return;
-    const key = raw.toUpperCase();
+    // ===== Agregar nodo al grafo si no estaba =====
+    if (!grafo.nodos[mejorNodo]) {
+        grafo.nodos[mejorNodo] = { lat: nSel.lat, lng: nSel.lng, tipo: tipoSel, capacidad: capSel };
+        grafo.aristas[mejorNodo] = [];
+    }
 
-    let layer = rutasDic[key] || rutasById[key];
-    if (!layer) {
-        alert("No se encontró la ruta: " + raw);
+    // Dibujar el nodo seleccionado sobre el mapa con borde negro para diferenciarlo
+    L.circleMarker([nSel.lat, nSel.lng], {
+        radius: 6,
+        color: "black",
+        fillColor: colorPorTipo(tipoSel),
+        fillOpacity: 1
+    }).addTo(capaSubgrafo);
+
+    // ===== Si es el primer nodo de conexión =====
+    if (!seleccion1) {
+        seleccion1 = mejorNodo;
+        document.getElementById("selectedPair").innerText = `Nodo seleccionado: ${seleccion1}\nAhora clickeá otro nodo para conectar`;
         return;
     }
 
-
-    for (const k in rutasLayers) {
-        map.removeLayer(rutasLayers[k]);
+    // ===== Si es el segundo nodo para crear arista =====
+    if (!seleccion2 && mejorNodo !== seleccion1) {
+        seleccion2 = mejorNodo;
+        document.getElementById("selectedPair").innerText = `Arista: ${seleccion1} → ${seleccion2}`;
+        document.getElementById("pesoBox").setAttribute("desde", seleccion1);
+        document.getElementById("pesoBox").setAttribute("hasta", seleccion2);
+        document.getElementById("pesoBox").style.display = "block";
     }
 
-
-    capaBusqueda.clearLayers();
-
-
-    capaBusqueda.addLayer(layer);
-    map.addLayer(capaBusqueda);
-
-
-    try {
-        map.fitBounds(layer.getBounds().pad(0.25));
-    } catch(e){}
-
-
-    layer.setStyle({ color: "yellow", weight: 6 });
-
-    setTimeout(() => {
-        const tipo = layer.feature.properties.tipo || "UNKNOWN";
-        layer.setStyle({ color: colorPorTipo(tipo), weight: 3 });
-    }, 3500);
-}
-
-
-document.getElementById('btnBuscar').addEventListener('click', buscarRuta);
-document.getElementById('inputRuta').addEventListener('keypress', e => {
-    if (e.key === 'Enter') buscarRuta();
+    actualizarJson();
 });
+
+// ===== Guardar arista sin sobrescribir otras =====
+document.getElementById("guardarEdge").addEventListener("click", () => {
+    const box = document.getElementById("pesoBox");
+    const from = box.getAttribute("desde");
+    const to = box.getAttribute("hasta");
+    const pesoVal = Number(document.getElementById("inputPeso").value.trim());
+
+    if (!pesoVal || pesoVal <= 0) {
+        alert("Debe ser un peso positivo");
+        return;
+    }
+
+    const tipoDest = grafo.nodos[to].tipo.toUpperCase();
+    const capDest = CAPACIDAD_POR_TIPO[tipoDest] ?? CAPACIDAD_POR_TIPO.UNKNOWN;
+    const pesoReal = Math.min(pesoVal, capDest);
+
+    // No borramos otras aristas, agregamos una nueva
+    grafo.aristas[from].push({
+        to,
+        peso: pesoReal,
+        coordinates: [
+          [ grafo.nodos[from].lng, grafo.nodos[from].lat ],
+          [ grafo.nodos[to].lng, grafo.nodos[to].lat ]
+        ]
+    });
+
+    // Dibujar arista en el mapa
+    L.polyline(
+        [
+          [grafo.nodos[from].lat, grafo.nodos[from].lng],
+          [grafo.nodos[to].lat, grafo.nodos[to].lng]
+        ],
+        { weight: 3, opacity: 0.8 }
+    ).addTo(capaSubgrafo);
+
+    // reset selección para permitir muchas conexiones desde A
+    seleccion1 = null;
+    seleccion2 = null;
+    document.getElementById("inputPeso").value = "";
+    box.style.display = "none";
+
+    actualizarJson();
+});
+
+document.getElementById("cancelEdge").addEventListener("click", () => {
+    seleccion1 = null;
+    seleccion2 = null;
+    document.getElementById("pesoBox").style.display = "none";
+});
+
 </script>
+
 </body>
 </html>
