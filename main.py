@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from Grafo_Respose import Grafo
+from dkistra import calcular_camino_optimo
 
 app = FastAPI()
 
@@ -46,14 +47,19 @@ def info_grafo():
 @app.get("/camino/{origen}/{destino}")
 def camino(origen: str, destino: str):
     """
-    Luego aquí implementamos Dijkstra o BFS.
-    Por ahora solo devolvemos la estructura base.
+    Luego aquí implementamos Dijkstra 
     """
-    if origen not in g.nodos or destino not in g.nodos:
-        return {"ok": False, "error": "Nodo no existe"}
+    if not g.nodos:
+        return {"ok": False, "error": "Grafo no cargado. Use /cargar_grafo primero."}
 
-    return {
-        "ok": True,
-        "mensaje": f"Procesando camino entre {origen} → {destino}",
-        "nodos_totales": len(g.nodos),
-    }
+    if origen not in g.nodos:
+        return {"ok": False, "error": f"Origen '{origen}' no existe en el grafo."}
+
+    if destino not in g.nodos:
+        return {"ok": False, "error": f"Destino '{destino}' no existe en el grafo."}
+
+    # Ejecutar el cálculo principal 
+    result = calcular_camino_optimo(g, origen, destino)
+
+    # Pasamos directamente el resultado de la función;
+    return result
