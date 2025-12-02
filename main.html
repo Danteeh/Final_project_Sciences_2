@@ -18,7 +18,7 @@ html, body { height:100%; margin:0; }
     background:white;
     padding:10px;
     border-radius:6px;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.24);
+    box-shadow:0 2px 6px rgba(0,0,0,0.24);
     width:300px;
     font-family:Arial;
     font-size:13px;
@@ -35,24 +35,24 @@ html, body { height:100%; margin:0; }
 <div class="control-box">
     <div style="font-weight:bold;margin-bottom:6px;">Construcción de grafo</div>
 
-    <button id="resetGrafo" style="width:100%;padding:6px;background:#aa0000;color:white;border:none;border-radius:4px;cursor:pointer;">
-        Reiniciar Grafo
-    </button>
+    <button id="resetGrafo" style="width:100%;padding:6px;background:#aa0000;color:white;border:none;border-radius:4px;cursor:pointer;">Reiniciar Grafo</button>
 
     <div id="pesoBox">
         <div id="selectedPair"></div>
         <input type="number" id="inputPeso" placeholder="Peso de arista" style="width:100%;padding:6px;border:1px solid #bbb;border-radius:4px;margin-bottom:6px;">
-        <button id="guardarEdge" style="width:100%;padding:6px;background:#0055aa;color:white;border:none;border-radius:4px;cursor:pointer;">
-            Guardar arista
-        </button>
-        <button id="cancelEdge" style="width:100%;padding:6px;margin-top:5px;background:#888;color:white;border:none;border-radius:4px;cursor:pointer;">
-            Cancelar
-        </button>
+        <button id="guardarEdge" style="width:100%;padding:6px;background:#0055aa;color:white;border:none;border-radius:4px;cursor:pointer;">Guardar arista</button>
+        <button id="cancelEdge" style="width:100%;padding:6px;margin-top:5px;background:#888;color:white;border:none;border-radius:4px;cursor:pointer;">Cancelar</button>
     </div>
 
     <hr style="margin:10px 0;">
     <div style="font-weight:bold;margin-bottom:4px;">Grafo JSON</div>
     <textarea id="outputJson" readonly></textarea>
+
+    <button id="sendGraph" style="width:100%;padding:6px;margin-top:10px;background:#228800;color:white;border:none;border-radius:4px;cursor:pointer;">
+        Enviar grafo al servidor
+    </button>
+
+    <div id="serverResponse" style="margin-top:10px;font-size:12px;color:#333;"></div>
 </div>
 
 <div id="map"></div>
@@ -61,7 +61,7 @@ html, body { height:100%; margin:0; }
 
 <script>
 
-// ======== CAPACIDADES POR TIPO ========
+
 const CAPACIDAD_POR_TIPO = {
   TRONCAL: 200,
   URBANO: 80,
@@ -71,18 +71,19 @@ const CAPACIDAD_POR_TIPO = {
   UNKNOWN: 50
 };
 
-// ======== MAPA ========
+
 const map = L.map('map').setView([4.65, -74.1], 12);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19}).addTo(map);
 
 const capaSubgrafo = L.layerGroup().addTo(map);
 const capaEstaciones = L.layerGroup().addTo(map);
 
+
 const grafo = { nodos:{}, aristas:{} };
 let seleccion1 = null;
 let seleccion2 = null;
 
-/* ======== COLORES CORRECTOS POR TIPO ======== */
+
 function colorPorTipo(tipo) {
     tipo = String(tipo || '').toUpperCase();
     if (tipo === 'TRONCAL') return 'red';
@@ -92,12 +93,11 @@ function colorPorTipo(tipo) {
     return 'gray';
 }
 
-// ======= Actualizar JSON en panel =======
 function actualizarJson() {
     document.getElementById("outputJson").value = JSON.stringify(grafo, null, 2);
 }
 
-// ======== Reiniciar grafo local (no el mapa) ========
+
 document.getElementById("resetGrafo").addEventListener("click", () => {
     grafo.nodos = {};
     grafo.aristas = {};
@@ -107,8 +107,8 @@ document.getElementById("resetGrafo").addEventListener("click", () => {
     actualizarJson();
 });
 
-// ======== Cargar estaciones y mostrarlas siempre ========
-let estacionesByCoordClick = {}; // id-> {lat,lng,tipo}
+
+let estacionesByCoordClick = {};
 
 fetch("estaciones.geojson")
 .then(r => r.json())
@@ -118,116 +118,96 @@ fetch("estaciones.geojson")
     const [lng, lat] = f.geometry.coordinates;
     const tipo = String(p.tipo || "UNKNOWN").toUpperCase();
 
-    const marker = L.circleMarker([lat, lng], {
+    L.circleMarker([lat, lng], {
         radius: 5,
         color: colorPorTipo(tipo),
         fillColor: colorPorTipo(tipo),
         fillOpacity: 0.95
     })
-    .bindPopup(`<b>${p.stop_name}</b><br>Tipo: ${tipo}<br>Capacidad: ${CAPACIDAD_POR_TIPO[tipo] ?? CAPACIDAD_POR_TIPO.UNKNOWN}`);
+    .bindPopup(`<b>${p.stop_name}</b><br>Tipo: ${tipo}<br>Capacidad: ${CAPACIDAD_POR_TIPO[tipo]}`)
+    .addTo(capaEstaciones);
 
-    // Mostrar en mapa siempre
-    marker.addTo(capaEstaciones);
-
-    // Guardar para detección por click cercano
     estacionesByCoordClick[p.stop_id] = { lat, lng, tipo };
   });
 });
 
-// ======== Selección para formar múltiples aristas ========
+
 map.on("click", (e) => {
 
     let mejorNodo = null;
     let mejorDist = Infinity;
 
-    // buscar nodo más cercano del dataset visualizado
     for (const nid in estacionesByCoordClick) {
         const n = estacionesByCoordClick[nid];
         const dx = e.latlng.lat - n.lat;
         const dy = e.latlng.lng - n.lng;
         const dist = Math.sqrt(dx*dx + dy*dy);
 
-        if (dist < mejorDist && dist < 0.02) { // tolerancia pequeña para detectar el click
-            mejorDist = dist;
-            mejorNodo = nid;
-        }
+        if (dist < mejorDist && dist < 0.02)
+            mejorDist = dist, mejorNodo = nid;
     }
 
     if (!mejorNodo) return;
 
     const nSel = estacionesByCoordClick[mejorNodo];
-    const tipoSel = nSel.tipo;
-    const capSel = CAPACIDAD_POR_TIPO[tipoSel] ?? CAPACIDAD_POR_TIPO.UNKNOWN;
+    const capSel = CAPACIDAD_POR_TIPO[nSel.tipo] ?? 50;
 
-    // ===== Agregar nodo al grafo si no estaba =====
     if (!grafo.nodos[mejorNodo]) {
-        grafo.nodos[mejorNodo] = { lat: nSel.lat, lng: nSel.lng, tipo: tipoSel, capacidad: capSel };
+        grafo.nodos[mejorNodo] = { lat:nSel.lat, lng:nSel.lng, tipo:nSel.tipo, capacidad:capSel };
         grafo.aristas[mejorNodo] = [];
     }
 
-    // Dibujar el nodo seleccionado sobre el mapa con borde negro para diferenciarlo
-    L.circleMarker([nSel.lat, nSel.lng], {
-        radius: 6,
-        color: "black",
-        fillColor: colorPorTipo(tipoSel),
-        fillOpacity: 1
-    }).addTo(capaSubgrafo);
+    L.circleMarker([nSel.lat, nSel.lng], { radius:6, color:"black", fillColor:colorPorTipo(nSel.tipo), fillOpacity:1 })
+      .addTo(capaSubgrafo);
 
-    // ===== Si es el primer nodo de conexión =====
     if (!seleccion1) {
         seleccion1 = mejorNodo;
-        document.getElementById("selectedPair").innerText = `Nodo seleccionado: ${seleccion1}\nAhora clickeá otro nodo para conectar`;
+        document.getElementById("selectedPair").innerText = `Primer nodo: ${seleccion1}`;
         return;
     }
 
-    // ===== Si es el segundo nodo para crear arista =====
     if (!seleccion2 && mejorNodo !== seleccion1) {
         seleccion2 = mejorNodo;
-        document.getElementById("selectedPair").innerText = `Arista: ${seleccion1} → ${seleccion2}`;
-        document.getElementById("pesoBox").setAttribute("desde", seleccion1);
-        document.getElementById("pesoBox").setAttribute("hasta", seleccion2);
-        document.getElementById("pesoBox").style.display = "block";
+
+        document.getElementById("selectedPair").innerText =
+            `Arista: ${seleccion1} → ${seleccion2}`;
+
+        const box = document.getElementById("pesoBox");
+        box.setAttribute("desde", seleccion1);
+        box.setAttribute("hasta", seleccion2);
+        box.style.display = "block";
     }
 
     actualizarJson();
 });
 
-// ===== Guardar arista sin sobrescribir otras =====
+
 document.getElementById("guardarEdge").addEventListener("click", () => {
     const box = document.getElementById("pesoBox");
     const from = box.getAttribute("desde");
     const to = box.getAttribute("hasta");
-    const pesoVal = Number(document.getElementById("inputPeso").value.trim());
+    const peso = Number(document.getElementById("inputPeso").value);
 
-    if (!pesoVal || pesoVal <= 0) {
-        alert("Debe ser un peso positivo");
-        return;
-    }
+    if (!peso || peso <= 0) { alert("Peso inválido"); return; }
 
-    const tipoDest = grafo.nodos[to].tipo.toUpperCase();
-    const capDest = CAPACIDAD_POR_TIPO[tipoDest] ?? CAPACIDAD_POR_TIPO.UNKNOWN;
-    const pesoReal = Math.min(pesoVal, capDest);
+    const cap = grafo.nodos[to].capacidad;
+    const pesoReal = Math.min(peso, cap);
 
-    // No borramos otras aristas, agregamos una nueva
     grafo.aristas[from].push({
         to,
         peso: pesoReal,
         coordinates: [
-          [ grafo.nodos[from].lng, grafo.nodos[from].lat ],
-          [ grafo.nodos[to].lng, grafo.nodos[to].lat ]
+            [grafo.nodos[from].lng, grafo.nodos[from].lat],
+            [grafo.nodos[to].lng, grafo.nodos[to].lat]
         ]
     });
 
-    // Dibujar arista en el mapa
     L.polyline(
-        [
-          [grafo.nodos[from].lat, grafo.nodos[from].lng],
-          [grafo.nodos[to].lat, grafo.nodos[to].lng]
-        ],
-        { weight: 3, opacity: 0.8 }
+        [[grafo.nodos[from].lat, grafo.nodos[from].lng],
+         [grafo.nodos[to].lat, grafo.nodos[to].lng]],
+        {weight:3, opacity:0.8}
     ).addTo(capaSubgrafo);
 
-    // reset selección para permitir muchas conexiones desde A
     seleccion1 = null;
     seleccion2 = null;
     document.getElementById("inputPeso").value = "";
@@ -236,10 +216,31 @@ document.getElementById("guardarEdge").addEventListener("click", () => {
     actualizarJson();
 });
 
+
 document.getElementById("cancelEdge").addEventListener("click", () => {
     seleccion1 = null;
     seleccion2 = null;
     document.getElementById("pesoBox").style.display = "none";
+});
+
+
+document.getElementById("sendGraph").addEventListener("click", async () => {
+    const respDiv = document.getElementById("serverResponse");
+
+    try {
+        const res = await fetch("http://127.0.0.1:8000/cargar_grafo", {
+            method:"POST",
+            headers:{ "Content-Type":"application/json" },
+            body: JSON.stringify(grafo)
+        });
+
+        const data = await res.json();
+        respDiv.innerHTML = `<b>Respuesta del servidor:</b><br>${JSON.stringify(data, null, 2)}`;
+
+    } catch(err) {
+        respDiv.innerHTML = "<b style='color:red;'>Error enviando el grafo</b>";
+        console.error(err);
+    }
 });
 
 </script>
