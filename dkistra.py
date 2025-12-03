@@ -2,6 +2,7 @@ import math
 import heapq
 from typing import List, Dict, Any, Tuple, Optional
 import networkx as nx
+from btree_storage import guardar_subgrafo
 
 
 def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -31,6 +32,7 @@ def build_nx_from_grafo(grafo) -> nx.DiGraph:
             to = e.get('to')
             if to is None:
                 continue
+            # capacity
             cap = e.get('peso', e.get('weight', e.get('capacity', 1.0)))
             try:
                 cap = float(cap)
@@ -133,8 +135,10 @@ def export_path_subgraph(G: nx.DiGraph, path: List[str]) -> Dict[str, Any]:
 
 def calcular_camino_optimo(grafo, origen: str, destino: str) -> Dict[str, Any]:
 
+
     if origen not in grafo.nodos or destino not in grafo.nodos:
         return {"ok": False, "error": "Origen o destino no existen en el grafo."}
+
 
     Gnx = build_nx_from_grafo(grafo)
 
@@ -149,18 +153,27 @@ def calcular_camino_optimo(grafo, origen: str, destino: str) -> Dict[str, Any]:
     )
 
     if path_short is None:
-
         path_short = path_widest
-        length = sum(float(Gnx[u][v].get('length', 1.0))
+        length = sum(float(Gnx[u][v].get('length', 1.0)) 
                      for u, v in zip(path_short[:-1], path_short[1:]))
+
 
     sub = export_path_subgraph(Gnx, path_short)
 
 
-    return {
+    resultado = {
         "ok": True,
         "flujo_maximo": bottleneck,
         "camino": path_short,
         "capacidad_total": bottleneck,
+        "longitud_metros": length,
         "subgrafo": sub
     }
+
+
+    clave = f"{origen}->{destino}"
+    guardar_subgrafo(clave, resultado, store_path="btree_store.json", t=2)
+
+    print(f"[B-TREE] Subgrafo para {clave} guardado exitosamente.")
+
+    return resultado
