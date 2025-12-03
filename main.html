@@ -35,13 +35,20 @@ html, body { height:100%; margin:0; }
 <div class="control-box">
     <div style="font-weight:bold;margin-bottom:6px;">Construcción de grafo</div>
 
-    <button id="resetGrafo" style="width:100%;padding:6px;background:#aa0000;color:white;border:none;border-radius:4px;cursor:pointer;">Reiniciar Grafo</button>
+    <button id="resetGrafo" style="width:100%;padding:6px;background:#aa0000;color:white;border:none;border-radius:4px;cursor:pointer;">
+        Reiniciar Grafo
+    </button>
 
     <div id="pesoBox">
         <div id="selectedPair"></div>
-        <input type="number" id="inputPeso" placeholder="Peso de arista" style="width:100%;padding:6px;border:1px solid #bbb;border-radius:4px;margin-bottom:6px;">
-        <button id="guardarEdge" style="width:100%;padding:6px;background:#0055aa;color:white;border:none;border-radius:4px;cursor:pointer;">Guardar arista</button>
-        <button id="cancelEdge" style="width:100%;padding:6px;margin-top:5px;background:#888;color:white;border:none;border-radius:4px;cursor:pointer;">Cancelar</button>
+        <input type="number" id="inputPeso" placeholder="Peso de arista"
+            style="width:100%;padding:6px;border:1px solid #bbb;border-radius:4px;margin-bottom:6px;">
+        <button id="guardarEdge" style="width:100%;padding:6px;background:#0055aa;color:white;border:none;border-radius:4px;cursor:pointer;">
+            Guardar arista
+        </button>
+        <button id="cancelEdge" style="width:100%;padding:6px;margin-top:5px;background:#888;color:white;border:none;border-radius:4px;cursor:pointer;">
+            Cancelar
+        </button>
     </div>
 
     <hr style="margin:10px 0;">
@@ -49,7 +56,7 @@ html, body { height:100%; margin:0; }
     <textarea id="outputJson" readonly></textarea>
 
     <button id="sendGraph" style="width:100%;padding:6px;margin-top:10px;background:#228800;color:white;border:none;border-radius:4px;cursor:pointer;">
-        Enviar grafo al servidor
+        Enviar grafo y calcular camino óptimo
     </button>
 
     <div id="serverResponse" style="margin-top:10px;font-size:12px;color:#333;"></div>
@@ -61,7 +68,6 @@ html, body { height:100%; margin:0; }
 
 <script>
 
-
 const CAPACIDAD_POR_TIPO = {
   TRONCAL: 200,
   URBANO: 80,
@@ -71,7 +77,6 @@ const CAPACIDAD_POR_TIPO = {
   UNKNOWN: 50
 };
 
-
 const map = L.map('map').setView([4.65, -74.1], 12);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19}).addTo(map);
 
@@ -79,18 +84,24 @@ const capaSubgrafo = L.layerGroup().addTo(map);
 const capaEstaciones = L.layerGroup().addTo(map);
 
 
+
 const grafo = { nodos:{}, aristas:{} };
-let seleccion1 = null;
-let seleccion2 = null;
+
+let origen = null;
+let destino = null;
+
+let selA = null;   
+let selB = null;
+
 
 
 function colorPorTipo(tipo) {
-    tipo = String(tipo || '').toUpperCase();
-    if (tipo === 'TRONCAL') return 'red';
-    if (tipo === 'URBANO') return 'blue';
-    if (tipo === 'ALIMENTADOR') return 'green';
-    if (tipo === 'METRO') return 'purple';
-    return 'gray';
+    tipo = (tipo || "").toUpperCase();
+    if (tipo === "TRONCAL") return "red";
+    if (tipo === "URBANO") return "blue";
+    if (tipo === "ALIMENTADOR") return "green";
+    if (tipo === "METRO") return "purple";
+    return "gray";
 }
 
 function actualizarJson() {
@@ -101,97 +112,136 @@ function actualizarJson() {
 document.getElementById("resetGrafo").addEventListener("click", () => {
     grafo.nodos = {};
     grafo.aristas = {};
-    seleccion1 = null;
-    seleccion2 = null;
+    origen = null;
+    destino = null;
+    selA = null;
+    selB = null;
+
     capaSubgrafo.clearLayers();
     actualizarJson();
 });
 
 
-let estacionesByCoordClick = {};
+
+let estacionesById = {};
 
 fetch("estaciones.geojson")
 .then(r => r.json())
 .then(data => {
-  data.features.forEach(f => {
-    const p = f.properties;
-    const [lng, lat] = f.geometry.coordinates;
-    const tipo = String(p.tipo || "UNKNOWN").toUpperCase();
+    data.features.forEach(f => {
+        const p = f.properties;
+        const [lng, lat] = f.geometry.coordinates;
+        const tipo = (p.tipo || "UNKNOWN").toUpperCase();
 
-    L.circleMarker([lat, lng], {
-        radius: 5,
-        color: colorPorTipo(tipo),
-        fillColor: colorPorTipo(tipo),
-        fillOpacity: 0.95
-    })
-    .bindPopup(`<b>${p.stop_name}</b><br>Tipo: ${tipo}<br>Capacidad: ${CAPACIDAD_POR_TIPO[tipo]}`)
-    .addTo(capaEstaciones);
+        estacionesById[p.stop_id] = { lat, lng, tipo };
 
-    estacionesByCoordClick[p.stop_id] = { lat, lng, tipo };
-  });
+        L.circleMarker([lat, lng], {
+            radius:5,
+            color:colorPorTipo(tipo),
+            fillColor:colorPorTipo(tipo),
+            fillOpacity:0.9
+        })
+        .bindPopup(`<b>${p.stop_name}</b><br>Tipo: ${tipo}`)
+        .addTo(capaEstaciones);
+    });
 });
+
 
 
 map.on("click", (e) => {
 
-    let mejorNodo = null;
-    let mejorDist = Infinity;
 
-    for (const nid in estacionesByCoordClick) {
-        const n = estacionesByCoordClick[nid];
+    let mejor = null;
+    let menorDist = Infinity;
+
+    for (const id in estacionesById) {
+        const n = estacionesById[id];
         const dx = e.latlng.lat - n.lat;
         const dy = e.latlng.lng - n.lng;
         const dist = Math.sqrt(dx*dx + dy*dy);
 
-        if (dist < mejorDist && dist < 0.02)
-            mejorDist = dist, mejorNodo = nid;
+        if (dist < menorDist && dist < 0.02) {
+            menorDist = dist;
+            mejor = id;
+        }
     }
 
-    if (!mejorNodo) return;
+    if (!mejor) return;
 
-    const nSel = estacionesByCoordClick[mejorNodo];
-    const capSel = CAPACIDAD_POR_TIPO[nSel.tipo] ?? 50;
+    const nodo = estacionesById[mejor];
 
-    if (!grafo.nodos[mejorNodo]) {
-        grafo.nodos[mejorNodo] = { lat:nSel.lat, lng:nSel.lng, tipo:nSel.tipo, capacidad:capSel };
-        grafo.aristas[mejorNodo] = [];
+
+    if (!grafo.nodos[mejor]) {
+        grafo.nodos[mejor] = {
+            lat: nodo.lat,
+            lng: nodo.lng,
+            tipo: nodo.tipo,
+            capacidad: CAPACIDAD_POR_TIPO[nodo.tipo] || 50
+        };
+        grafo.aristas[mejor] = [];
     }
 
-    L.circleMarker([nSel.lat, nSel.lng], { radius:6, color:"black", fillColor:colorPorTipo(nSel.tipo), fillOpacity:1 })
-      .addTo(capaSubgrafo);
 
-    if (!seleccion1) {
-        seleccion1 = mejorNodo;
-        document.getElementById("selectedPair").innerText = `Primer nodo: ${seleccion1}`;
+    L.circleMarker([nodo.lat, nodo.lng], {
+        radius:6,
+        color:"black",
+        fillColor:colorPorTipo(nodo.tipo),
+        fillOpacity:1
+    }).addTo(capaSubgrafo);
+
+
+    if (!origen) {
+        origen = mejor;
+        document.getElementById("selectedPair").innerText = `Origen seleccionado: ${origen}`;
         return;
     }
 
-    if (!seleccion2 && mejorNodo !== seleccion1) {
-        seleccion2 = mejorNodo;
+    if (!destino) {
+        if (mejor === origen) return; 
+        destino = mejor;
+        document.getElementById("selectedPair").innerText = `Origen: ${origen} → Destino: ${destino}`;
+        return;
+    }
 
-        document.getElementById("selectedPair").innerText =
-            `Arista: ${seleccion1} → ${seleccion2}`;
+
+
+    if (!selA) { 
+        selA = mejor; 
+        return; 
+    }
+
+    if (!selB && mejor !== selA) {
+        selB = mejor;
+
 
         const box = document.getElementById("pesoBox");
-        box.setAttribute("desde", seleccion1);
-        box.setAttribute("hasta", seleccion2);
+        box.setAttribute("desde", selA);
+        box.setAttribute("hasta", selB);
         box.style.display = "block";
+
+        document.getElementById("selectedPair").innerText = `Arista: ${selA} → ${selB}`;
+        return;
     }
 
     actualizarJson();
 });
 
 
+
 document.getElementById("guardarEdge").addEventListener("click", () => {
+
     const box = document.getElementById("pesoBox");
     const from = box.getAttribute("desde");
     const to = box.getAttribute("hasta");
+
     const peso = Number(document.getElementById("inputPeso").value);
+    if (!peso || peso <= 0) {
+        alert("Peso inválido");
+        return;
+    }
 
-    if (!peso || peso <= 0) { alert("Peso inválido"); return; }
-
-    const cap = grafo.nodos[to].capacidad;
-    const pesoReal = Math.min(peso, cap);
+    const capDest = grafo.nodos[to].capacidad;
+    const pesoReal = Math.min(peso, capDest);
 
     grafo.aristas[from].push({
         to,
@@ -203,45 +253,103 @@ document.getElementById("guardarEdge").addEventListener("click", () => {
     });
 
     L.polyline(
-        [[grafo.nodos[from].lat, grafo.nodos[from].lng],
-         [grafo.nodos[to].lat, grafo.nodos[to].lng]],
+        [
+            [grafo.nodos[from].lat, grafo.nodos[from].lng],
+            [grafo.nodos[to].lat, grafo.nodos[to].lng]
+        ],
         {weight:3, opacity:0.8}
     ).addTo(capaSubgrafo);
 
-    seleccion1 = null;
-    seleccion2 = null;
+    selA = null;
+    selB = null;
+
+    document.getElementById("pesoBox").style.display = "none";
     document.getElementById("inputPeso").value = "";
-    box.style.display = "none";
 
     actualizarJson();
 });
 
 
+
 document.getElementById("cancelEdge").addEventListener("click", () => {
-    seleccion1 = null;
-    seleccion2 = null;
+    selA = null;
+    selB = null;
     document.getElementById("pesoBox").style.display = "none";
 });
 
-
 document.getElementById("sendGraph").addEventListener("click", async () => {
+
+    if (!origen || !destino) {
+        alert("Selecciona origen y destino primero");
+        return;
+    }
+
+    const payload = {
+        grafo: grafo,
+        origen: origen,
+        destino: destino
+    };
+
     const respDiv = document.getElementById("serverResponse");
 
     try {
-        const res = await fetch("http://127.0.0.1:8000/cargar_grafo", {
+        const res = await fetch("http://127.0.0.1:8000/camino_optimo", {
             method:"POST",
             headers:{ "Content-Type":"application/json" },
-            body: JSON.stringify(grafo)
+            body: JSON.stringify(payload)
         });
 
         const data = await res.json();
-        respDiv.innerHTML = `<b>Respuesta del servidor:</b><br>${JSON.stringify(data, null, 2)}`;
+if (!data.ok) {
+    alert(data.error);
+    return;
+}
+
+
+pintarRuta(data.subgrafo);
+
+
+respDiv.innerHTML = `
+    <div style="padding:8px;border-radius:6px;background:#eef4ff;border:1px solid #aac;">
+        <div><b>Flujo máximo:</b> ${data.flujo_maximo}</div>
+        <div><b>Camino óptimo:</b> ${data.camino.join(" → ")}</div>
+        <div><b>Capacidad total del recorrido:</b> ${data.capacidad_total}</div>
+    </div>
+`;
+
 
     } catch(err) {
-        respDiv.innerHTML = "<b style='color:red;'>Error enviando el grafo</b>";
+        respDiv.innerHTML = "<b style='color:red;'>Error enviando grafo</b>";
         console.error(err);
     }
 });
+
+
+function pintarRuta(sub) {
+
+    capaSubgrafo.clearLayers();
+
+    sub.nodes.forEach(n => {
+        L.circleMarker([n.lat, n.lng], {
+            radius: 7,
+            color: "yellow",
+            fillColor: "orange",
+            fillOpacity: 1
+        }).addTo(capaSubgrafo);
+    });
+
+    sub.edges.forEach(e => {
+        const coords = e.raw.coordinates;
+
+        L.polyline(
+            [
+                [coords[0][1], coords[0][0]],
+                [coords[1][1], coords[1][0]]
+            ],
+            { color:"yellow", weight:5 }
+        ).addTo(capaSubgrafo);
+    });
+}
 
 </script>
 

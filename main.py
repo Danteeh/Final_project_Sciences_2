@@ -6,60 +6,24 @@ from dkistra import calcular_camino_optimo
 
 app = FastAPI()
 
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],   
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-
-class GrafoInput(BaseModel):
-    nodos: dict
-    aristas: dict
-
-
-g = Grafo()
+class CaminoRequest(BaseModel):
+    grafo: dict
+    origen: str
+    destino: str
 
 
-
-@app.post("/cargar_grafo")
-def cargar_grafo(data: GrafoInput):
-    global g
+@app.post("/camino_optimo")
+def camino_optimo(data: CaminoRequest):
     g = Grafo()
-    g.cargar_desde_json(data.dict())
+    g.cargar_desde_json(data.grafo)
 
-    return {
-        "ok": True,
-        "nodos": len(g.nodos),
-        "aristas": sum(len(v) for v in g.aristas.values())
-    }
-
-
-@app.get("/info_grafo")
-def info_grafo():
-    return g.info()
-
-
-
-@app.get("/camino/{origen}/{destino}")
-def camino(origen: str, destino: str):
-    """
-    Luego aquí implementamos Dijkstra 
-    """
-    if not g.nodos:
-        return {"ok": False, "error": "Grafo no cargado. Use /cargar_grafo primero."}
-
-    if origen not in g.nodos:
-        return {"ok": False, "error": f"Origen '{origen}' no existe en el grafo."}
-
-    if destino not in g.nodos:
-        return {"ok": False, "error": f"Destino '{destino}' no existe en el grafo."}
-
-    # Ejecutar el cálculo principal 
-    result = calcular_camino_optimo(g, origen, destino)
-
-    # Pasamos directamente el resultado de la función;
-    return result
+    resultado = calcular_camino_optimo(g, data.origen, data.destino)
+    return resultado

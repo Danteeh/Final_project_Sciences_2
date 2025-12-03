@@ -1,14 +1,9 @@
-"""
-Algoritmos para obtener la ruta con mayor flujo (bottleneck) y,
-entre las rutas que permiten ese flujo, la ruta más corta (Dijkstra).
-Esta lógica trabaja sobre la instancia Grafo definida en Grafo_Respose.py.
-"""
 import math
 import heapq
 from typing import List, Dict, Any, Tuple, Optional
 import networkx as nx
 
-# Función auxiliar: distancia Haversine (metros)
+
 def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     R = 6371000.0
     phi1 = math.radians(lat1)
@@ -19,13 +14,9 @@ def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * R * math.asin(math.sqrt(a))
 
 def build_nx_from_grafo(grafo) -> nx.DiGraph:
-    """
-    Construye un DiGraph de networkx desde la instancia Grafo:
-     - capacity: se toma de edge['peso'] o 'weight' o 'capacity' (fallback 1.0)
-     - length: se toma de edge['length'/'dist'] o se calcula por haversine entre nodos (fallback 1.0)
-    """
+
     G = nx.DiGraph()
-    # agregar nodos con lat/lng si existen
+
     for nid, info in grafo.nodos.items():
         attrs = {}
         if 'lat' in info and 'lng' in info:
@@ -35,13 +26,11 @@ def build_nx_from_grafo(grafo) -> nx.DiGraph:
             except:
                 pass
         G.add_node(nid, **attrs)
-    # agregar aristas
     for origen, edges in grafo.aristas.items():
         for e in edges:
             to = e.get('to')
             if to is None:
                 continue
-            # capacity
             cap = e.get('peso', e.get('weight', e.get('capacity', 1.0)))
             try:
                 cap = float(cap)
@@ -75,10 +64,7 @@ def build_nx_from_grafo(grafo) -> nx.DiGraph:
     return G
 
 def widest_path(G: nx.DiGraph, source: str, target: str, capacity_attr: str = 'capacity') -> Tuple[float, List[str]]:
-    """
-    Camino que maximiza el mínimo capacity a lo largo de la ruta (bottleneck).
-    Devuelve (bottleneck, path_list). Si no existe, retorna (0.0, []).
-    """
+
     if source not in G or target not in G:
         return 0.0, []
     best = {n: 0.0 for n in G.nodes()}
@@ -101,7 +87,7 @@ def widest_path(G: nx.DiGraph, source: str, target: str, capacity_attr: str = 'c
                 heapq.heappush(heap, (-bott, v))
     if best[target] == 0.0:
         return 0.0, []
-    # reconstruir path
+
     path = []
     cur = target
     while cur != source:
@@ -115,10 +101,7 @@ def widest_path(G: nx.DiGraph, source: str, target: str, capacity_attr: str = 'c
 
 def shortest_path_with_capacity_threshold(G: nx.DiGraph, source: str, target: str, min_capacity: float,
                                           capacity_attr: str = 'capacity', length_attr: str = 'length') -> Tuple[Optional[float], Optional[List[str]]]:
-    """
-    Construye subgrafo con aristas cuya capacity >= min_capacity y busca el camino
-    más corto (por length_attr). Retorna (length_total, path) o (None, None).
-    """
+
     H = nx.DiGraph()
     for u, v, d in G.edges(data=True):
         if float(d.get(capacity_attr, 0.0)) >= float(min_capacity):
@@ -133,9 +116,7 @@ def shortest_path_with_capacity_threshold(G: nx.DiGraph, source: str, target: st
         return None, None
 
 def export_path_subgraph(G: nx.DiGraph, path: List[str]) -> Dict[str, Any]:
-    """
-    Genera dict serializable con nodos y aristas que pertenecen al path.
-    """
+
     nodes = []
     edges = []
     for n in path:
@@ -151,30 +132,35 @@ def export_path_subgraph(G: nx.DiGraph, path: List[str]) -> Dict[str, Any]:
     return {"nodes": nodes, "edges": edges}
 
 def calcular_camino_optimo(grafo, origen: str, destino: str) -> Dict[str, Any]:
-    """
-    Función principal que recibe la instancia Grafo y devuelve:
-     - bottleneck (float)
-     - length_m (float)
-     - path (lista nodos)
-     - subgrafo (nodes+edges del camino)
-    Si no existe camino devuelve dict con 'ok': False y 'error'.
-    """
+
     if origen not in grafo.nodos or destino not in grafo.nodos:
         return {"ok": False, "error": "Origen o destino no existen en el grafo."}
+
     Gnx = build_nx_from_grafo(grafo)
+
+
     bottleneck, path_widest = widest_path(Gnx, origen, destino)
     if bottleneck == 0.0 or not path_widest:
         return {"ok": False, "error": "No existe camino entre origen y destino."}
-    length, path_short = shortest_path_with_capacity_threshold(Gnx, origen, destino, bottleneck)
+
+
+    length, path_short = shortest_path_with_capacity_threshold(
+        Gnx, origen, destino, bottleneck
+    )
+
     if path_short is None:
-        # fallback usar widest
+
         path_short = path_widest
-        length = sum(float(Gnx[u][v].get('length', 1.0)) for u, v in zip(path_short[:-1], path_short[1:]))
+        length = sum(float(Gnx[u][v].get('length', 1.0))
+                     for u, v in zip(path_short[:-1], path_short[1:]))
+
     sub = export_path_subgraph(Gnx, path_short)
+
+
     return {
         "ok": True,
-        "bottleneck": bottleneck,
-        "length_m": length,
-        "path": path_short,
+        "flujo_maximo": bottleneck,
+        "camino": path_short,
+        "capacidad_total": bottleneck,
         "subgrafo": sub
     }
