@@ -16,7 +16,7 @@ class BTreeNode:
     #Convierte el nodo a un diccionario serializable en JSON.
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "keys": self.keys,
+            "keys": self.keys, 
             "values": self.values,
             "children": [c.to_dict() for c in self.children],
             "leaf": self.leaf,

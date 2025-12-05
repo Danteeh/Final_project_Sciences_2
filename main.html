@@ -58,9 +58,22 @@ html, body { height:100%; margin:0; }
     <button id="sendGraph" style="width:100%;padding:6px;margin-top:10px;background:#228800;color:white;border:none;border-radius:4px;cursor:pointer;">
         Enviar grafo y calcular camino óptimo
     </button>
+	
+	<button id="btnListar" style="width:100%;padding:6px;margin-top:10px;background:#444;color:white;border:none;border-radius:4px;">
+    Ver rutas guardadas
+</button>
+
+<div id="listaRutas" style="margin-top:10px;font-size:12px;"></div>
+
+<button id="btnPlanificacion">Planificación de Recursos</button>
+<div id="panelPlanificacion"></div>
+
+
 
     <div id="serverResponse" style="margin-top:10px;font-size:12px;color:#333;"></div>
 </div>
+
+
 
 <div id="map"></div>
 
@@ -350,6 +363,51 @@ function pintarRuta(sub) {
         ).addTo(capaSubgrafo);
     });
 }
+
+
+document.getElementById("btnListar").addEventListener("click", async () => {
+    const box = document.getElementById("listaRutas");
+    box.innerHTML = "Cargando rutas guardadas...";
+
+    const res = await fetch("http://127.0.0.1:8000/rutas_guardadas");
+    const data = await res.json();
+
+    if (!data.ok) {
+        box.innerHTML = "Error cargando rutas";
+        return;
+    }
+
+    box.innerHTML = "";
+    data.rutas.forEach(r => {
+        const btn = document.createElement("button");
+        btn.style = "margin:3px;padding:5px;width:100%;";
+        btn.innerText = `${r.clave} | flujo ${r.flujo_maximo}`;
+
+        btn.onclick = async () => {
+            const res2 = await fetch(`http://127.0.0.1:8000/ruta_guardada/${r.clave}`);
+            const d2 = await res2.json();
+            if (!d2.ok) return alert("No existe ruta guardada");
+
+            pintarRuta(d2.ruta.subgrafo);
+        };
+
+        box.appendChild(btn);
+    });
+});
+
+
+document.getElementById("btnPlanificacion").onclick = async () => {
+    const res = await fetch("http://127.0.0.1:8000/planificacion_recursos");
+    const data = await res.json();
+
+    let html = "<h4>Frecuencias asignadas</h4>";
+    for (const clave in data.frecuencias) {
+        html += `<div><b>${clave}</b>: ${data.frecuencias[clave]}</div>`;
+    }
+
+    document.getElementById("panelPlanificacion").innerHTML = html;
+};
+
 
 </script>
 
