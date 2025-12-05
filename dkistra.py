@@ -2,6 +2,9 @@ import math
 import heapq
 from typing import List, Dict, Any, Tuple, Optional
 import networkx as nx
+from btree_storage import guardar_subgrafo, recuperar_subgrafo
+import time
+import sys
 
 
 def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -164,3 +167,35 @@ def calcular_camino_optimo(grafo, origen: str, destino: str) -> Dict[str, Any]:
         "capacidad_total": bottleneck,
         "subgrafo": sub
     }
+#EN duda
+
+if __name__ == "__main__":
+    # usage: python dkistra.py <grafo_key> <origen> <destino>
+    if len(sys.argv) < 4:
+        print("Usage: python dkistra.py <grafo_key> <origen> <destino>")
+        sys.exit(1)
+
+    grafo_key = sys.argv[1]
+    origen = sys.argv[2]
+    destino = sys.argv[3]
+
+    # intentar recuperar el grafo desde el almacenamiento (ajustar según implementación)
+    grafo = recuperar_subgrafo(grafo_key)
+    if grafo is None:
+        print(f"Grafo '{grafo_key}' no encontrado.")
+        sys.exit(1)
+
+    res = calcular_camino_optimo(grafo, origen, destino)
+    if not res.get("ok"):
+        print("Error:", res.get("error"))
+        sys.exit(1)
+
+    sub = res["subgrafo"]
+    clave = f"{origen}|{destino}|{int(time.time())}"
+
+    guardar_subgrafo(clave, sub)
+
+    print("Guardado como:", clave)
+
+print("Guardado como:", clave)
+
